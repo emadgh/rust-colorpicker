@@ -11,12 +11,12 @@ use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::Gdi::{
         BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateSolidBrush, DeleteDC,
-        DeleteObject, DrawFocusRect, EndPaint, FillRect, FrameRect, GetFocus, InvalidateRect,
-        PAINTSTRUCT, SRCCOPY, SelectObject,
+        DeleteObject, DrawFocusRect, EndPaint, FillRect, FrameRect, InvalidateRect, PAINTSTRUCT,
+        SRCCOPY, SelectObject,
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Input::KeyboardAndMouse::{SetFocus, VK_RETURN, VK_SPACE},
+        Input::KeyboardAndMouse::{GetFocus, SetFocus, VK_RETURN, VK_SPACE},
         WindowsAndMessaging::{
             CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA,
             GetClientRect, GetDlgCtrlID, GetParent, GetWindowLongPtrW, IDC_ARROW, IsWindow,
