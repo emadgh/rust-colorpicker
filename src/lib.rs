@@ -11,6 +11,7 @@ mod dialog;
 mod hsv;
 
 #[cfg(windows)]
+#[allow(clippy::field_reassign_with_default)]
 mod win32_picker;
 
 #[cfg(windows)]
