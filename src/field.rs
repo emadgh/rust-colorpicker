@@ -10,12 +10,13 @@ use std::{marker::PhantomData, rc::Rc, sync::OnceLock};
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::Gdi::{
-        BeginPaint, COLOR_WINDOWFRAME, CreateSolidBrush, DeleteObject, DrawFocusRect, EndPaint,
-        FillRect, FrameRect, GetSysColorBrush, InvalidateRect, PAINTSTRUCT,
+        BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateSolidBrush, DeleteDC,
+        DeleteObject, DrawFocusRect, EndPaint, FillRect, FrameRect, GetFocus, InvalidateRect,
+        PAINTSTRUCT, SRCCOPY, SelectObject,
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Input::KeyboardAndMouse::{GetFocus, SetFocus, VK_RETURN, VK_SPACE},
+        Input::KeyboardAndMouse::{SetFocus, VK_RETURN, VK_SPACE},
         WindowsAndMessaging::{
             CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA,
             GetClientRect, GetDlgCtrlID, GetParent, GetWindowLongPtrW, IDC_ARROW, IsWindow,
@@ -34,6 +35,7 @@ pub const COLOR_FIELD_CHANGED: u16 = 0x0100;
 
 const CLASS_NAME: *const u16 = windows_sys::w!("RustColorPicker.ColorField");
 static CLASS_REGISTRATION: OnceLock<Result<(), u32>> = OnceLock::new();
+const FIELD_BORDER: Color = Color::rgb(198, 201, 207);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ColorFieldBounds {
@@ -220,17 +222,12 @@ fn state_ptr(hwnd: HWND) -> Result<*mut FieldState, FieldError> {
 fn activate(hwnd: HWND) -> Result<Option<Color>, FieldError> {
     let state = state_ptr(hwnd)?;
 
-    // Copy state out before opening the modal custom popup. The picker runs a
-    // nested message loop, so holding a Rust reference into window state across
-    // that call would make re-entrant messages unsound.
     let (initial, mut picker) = unsafe { ((*state).color, (*state).picker.clone()) };
     let owner = unsafe { GetParent(hwnd) };
     let selected = picker
         .pick_with_owner(owner, initial)
         .map_err(FieldError::Picker)?;
 
-    // Re-resolve after the modal popup because the host could have destroyed
-    // the control while the nested message loop was active.
     let state = state_ptr(hwnd)?;
     unsafe {
         (*state).picker = picker;
@@ -311,37 +308,69 @@ unsafe fn paint(hwnd: HWND) {
 
     let mut rect = RECT::default();
     unsafe { GetClientRect(hwnd, &mut rect) };
+    let width = rect.right - rect.left;
+    let height = rect.bottom - rect.top;
 
-    let frame = unsafe { GetSysColorBrush(COLOR_WINDOWFRAME) };
-    if !frame.is_null() {
-        unsafe { FrameRect(hdc, &rect, frame) };
+    let memory_dc = unsafe { CreateCompatibleDC(hdc) };
+    if memory_dc.is_null() {
+        unsafe {
+            render_field(hdc, hwnd, rect);
+            EndPaint(hwnd, &paint);
+        }
+        return;
     }
 
-    rect.left += 2;
-    rect.top += 2;
-    rect.right -= 2;
-    rect.bottom -= 2;
+    let bitmap = unsafe { CreateCompatibleBitmap(hdc, width, height) };
+    if bitmap.is_null() {
+        unsafe {
+            DeleteDC(memory_dc);
+            render_field(hdc, hwnd, rect);
+            EndPaint(hwnd, &paint);
+        }
+        return;
+    }
 
-    if let Ok(state) = state_ptr(hwnd) {
-        let color = unsafe { (*state).color };
-        let brush = unsafe { CreateSolidBrush(color.to_colorref()) };
-        if !brush.is_null() {
-            unsafe {
+    let old_bitmap = unsafe { SelectObject(memory_dc, bitmap as _) };
+    unsafe {
+        render_field(memory_dc, hwnd, rect);
+        BitBlt(hdc, 0, 0, width, height, memory_dc, 0, 0, SRCCOPY);
+        SelectObject(memory_dc, old_bitmap);
+        DeleteObject(bitmap as _);
+        DeleteDC(memory_dc);
+        EndPaint(hwnd, &paint);
+    }
+}
+
+unsafe fn render_field(hdc: windows_sys::Win32::Graphics::Gdi::HDC, hwnd: HWND, mut rect: RECT) {
+    unsafe {
+        let border = CreateSolidBrush(FIELD_BORDER.to_colorref());
+        if !border.is_null() {
+            FrameRect(hdc, &rect, border);
+            DeleteObject(border as _);
+        }
+
+        rect.left += 2;
+        rect.top += 2;
+        rect.right -= 2;
+        rect.bottom -= 2;
+
+        if let Ok(state) = state_ptr(hwnd) {
+            let color = (*state).color;
+            let brush = CreateSolidBrush(color.to_colorref());
+            if !brush.is_null() {
                 FillRect(hdc, &rect, brush);
                 DeleteObject(brush as _);
             }
         }
-    }
 
-    if unsafe { GetFocus() } == hwnd {
-        rect.left += 3;
-        rect.top += 3;
-        rect.right -= 3;
-        rect.bottom -= 3;
-        unsafe { DrawFocusRect(hdc, &rect) };
+        if GetFocus() == hwnd {
+            rect.left += 3;
+            rect.top += 3;
+            rect.right -= 3;
+            rect.bottom -= 3;
+            DrawFocusRect(hdc, &rect);
+        }
     }
-
-    unsafe { EndPaint(hwnd, &paint) };
 }
 
 #[derive(Debug)]
