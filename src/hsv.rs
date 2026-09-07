@@ -92,7 +92,7 @@ mod tests {
             Color::rgb(0, 0, 0),
             Color::rgb(127, 63, 231),
         ] {
-            let hsv = rgb_to_hsv(color);
+            let hsv = Hsv::from_color(color);
             let result = hsv.to_color(color.a);
             assert!((result.r as i16 - color.r as i16).abs() <= 1);
             assert!((result.g as i16 - color.g as i16).abs() <= 1);
