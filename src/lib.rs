@@ -6,6 +6,7 @@
 
 mod color;
 mod dialog;
+mod style;
 
 #[cfg(any(windows, test))]
 mod hsv;
@@ -18,7 +19,8 @@ mod win32_picker;
 pub mod field;
 
 pub use color::{Color, ParseColorError};
-pub use dialog::{ColorPicker, PickerError, pick_color};
+pub use dialog::{ColorPicker, PickerError, PickerEvent, pick_color};
+pub use style::{PickerChrome, PickerFont, PickerLabels, PickerTheme};
 
 #[cfg(windows)]
 pub use dialog::pick_color_with_owner;
