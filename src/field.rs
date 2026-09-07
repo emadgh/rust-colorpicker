@@ -10,19 +10,18 @@ use std::{marker::PhantomData, rc::Rc, sync::OnceLock};
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::Gdi::{
-        BeginPaint, CreateSolidBrush, DeleteObject, DrawFocusRect, EndPaint, FillRect, FrameRect,
-        PAINTSTRUCT,
+        BeginPaint, COLOR_WINDOWFRAME, CreateSolidBrush, DeleteObject, DrawFocusRect, EndPaint,
+        FillRect, FrameRect, GetSysColorBrush, InvalidateRect, PAINTSTRUCT,
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Input::KeyboardAndMouse::{VK_RETURN, VK_SPACE},
+        Input::KeyboardAndMouse::{GetFocus, SetFocus, VK_RETURN, VK_SPACE},
         WindowsAndMessaging::{
-            COLOR_WINDOWFRAME, CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow,
-            GWLP_USERDATA, GetClientRect, GetDlgCtrlID, GetFocus, GetParent, GetSysColorBrush,
-            GetWindowLongPtrW, IDC_ARROW, InvalidateRect, IsWindow, LoadCursorW, RegisterClassW,
-            SendMessageW, SetFocus, SetWindowLongPtrW, WM_COMMAND, WM_ERASEBKGND, WM_KEYDOWN,
-            WM_KILLFOCUS, WM_LBUTTONUP, WM_NCDESTROY, WM_PAINT, WM_SETFOCUS, WNDCLASSW, WS_CHILD,
-            WS_TABSTOP, WS_VISIBLE,
+            CS_DBLCLKS, CreateWindowExW, DefWindowProcW, DestroyWindow, GWLP_USERDATA,
+            GetClientRect, GetDlgCtrlID, GetParent, GetWindowLongPtrW, IDC_ARROW, IsWindow,
+            LoadCursorW, RegisterClassW, SendMessageW, SetWindowLongPtrW, WM_COMMAND,
+            WM_ERASEBKGND, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONUP, WM_NCDESTROY, WM_PAINT,
+            WM_SETFOCUS, WNDCLASSW, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
