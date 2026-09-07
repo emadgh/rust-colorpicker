@@ -467,6 +467,7 @@ unsafe fn create_children(hwnd: HWND, state: &mut PickerState) -> Result<(), u32
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn create_child(
     parent: HWND,
     instance: windows_sys::Win32::Foundation::HINSTANCE,
