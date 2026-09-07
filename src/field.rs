@@ -55,8 +55,8 @@ impl ColorFieldBounds {
     }
 }
 
-/// Owned native child control that displays a color swatch and opens the OS
-/// color picker when clicked or activated with Enter/Space.
+/// Owned native child control that displays a color swatch and opens this
+/// crate's custom Win32/GDI picker when clicked or activated with Enter/Space.
 ///
 /// The control sends `WM_COMMAND` to its parent after a changed selection. The
 /// low word is the control ID and the high word is [`COLOR_FIELD_CHANGED`].
@@ -220,16 +220,16 @@ fn state_ptr(hwnd: HWND) -> Result<*mut FieldState, FieldError> {
 fn activate(hwnd: HWND) -> Result<Option<Color>, FieldError> {
     let state = state_ptr(hwnd)?;
 
-    // Copy state out before opening the modal OS dialog. The native dialog runs
-    // a nested message loop, so holding a Rust reference into window state
-    // across that call would make re-entrant messages unsound.
+    // Copy state out before opening the modal custom popup. The picker runs a
+    // nested message loop, so holding a Rust reference into window state across
+    // that call would make re-entrant messages unsound.
     let (initial, mut picker) = unsafe { ((*state).color, (*state).picker.clone()) };
     let owner = unsafe { GetParent(hwnd) };
     let selected = picker
         .pick_with_owner(owner, initial)
         .map_err(FieldError::Picker)?;
 
-    // Re-resolve after the modal dialog because the host could have destroyed
+    // Re-resolve after the modal popup because the host could have destroyed
     // the control while the nested message loop was active.
     let state = state_ptr(hwnd)?;
     unsafe {
