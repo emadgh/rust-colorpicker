@@ -6,6 +6,8 @@
 
 mod color;
 mod dialog;
+
+#[cfg(any(windows, test))]
 mod hsv;
 
 #[cfg(windows)]
