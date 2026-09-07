@@ -106,15 +106,6 @@ impl Area {
             bottom: self.y + self.height,
         }
     }
-
-    fn inset(self, amount: i32) -> Self {
-        Self {
-            x: self.x + amount,
-            y: self.y + amount,
-            width: (self.width - amount * 2).max(1),
-            height: (self.height - amount * 2).max(1),
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1258,6 +1249,7 @@ unsafe fn draw_markers(hdc: HDC, state: &PickerState) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 unsafe fn draw_button(
     hdc: HDC,
     area: Area,
