@@ -3,8 +3,8 @@ use core::str::FromStr;
 
 /// An 8-bit sRGB color with alpha.
 ///
-/// The native Windows color dialog edits RGB only. When a color is returned
-/// from that dialog, the incoming alpha component is preserved.
+/// The custom picker edits RGB and can optionally edit alpha. When alpha
+/// editing is disabled, the incoming alpha component is preserved.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Color {
     pub r: u8,

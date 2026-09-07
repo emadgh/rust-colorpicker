@@ -10,16 +10,17 @@ The Windows picker provides:
 
 - large 2D Saturation / Value surface
 - vertical Hue strip
-- horizontal Alpha strip with checkerboard transparency preview
+- horizontal Alpha strip
 - draggable selection indicators
 - editable `#RRGGBB` / `#RRGGBBAA` hex field
 - old-color and new-color previews
-- OK / Cancel behavior
+- Enter to accept and Escape to cancel
+- click the old preview to restore the incoming color
+- click the new preview to accept the current color
 - modal owner-window behavior
 - mouse drag interaction
-- native Win32 edit/button controls for keyboard and focus behavior
 
-The layout intentionally follows the compact Photoshop-style picker pattern: a large color surface, a narrow hue strip, a horizontal transparency strip, hex input, and before/after previews.
+The client layout follows the compact 356×427 reference used by the project: a large color surface, a narrow hue strip, a horizontal alpha mask, centered hex row, and before/after previews. The visible OK/Cancel button row is intentionally omitted; confirmation is handled by Enter or the new-color preview and cancellation by Escape or closing the popup.
 
 ## Architecture
 
@@ -123,7 +124,11 @@ The field owns its HWND and destroys it on `Drop`. It is intentionally `!Send` a
 - `#RRGGBBAA`
 - Win32 `COLORREF` conversion
 
-When alpha editing is enabled, the picker shows and edits `#RRGGBBAA` and provides a visual alpha slider over a checkerboard background.
+When alpha editing is enabled, the picker shows and edits `#RRGGBBAA` and exposes a horizontal alpha control. When alpha editing is disabled, the incoming alpha is preserved while RGB is edited.
+
+## Windows demo artifact
+
+CI builds the `examples/picker.rs` demo as a release-mode Windows executable and uploads it as the `rust-colorpicker-demo-windows` workflow artifact. This is intended for visual and interaction testing without publishing a release.
 
 ## Platform behavior
 
