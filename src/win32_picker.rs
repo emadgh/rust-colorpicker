@@ -10,12 +10,12 @@ use windows_sys::Win32::{
             DwmSetWindowAttribute,
         },
         Gdi::{
-            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACK_PEN, BeginPaint, BitBlt,
-            CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, COLOR_WINDOW, CreateCompatibleBitmap,
-            CreateCompatibleDC, CreateFontW, CreatePen, CreateSolidBrush, DEFAULT_CHARSET,
-            DEFAULT_GUI_FONT, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER, DT_LEFT, DT_RIGHT,
-            DT_RTLREADING, DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, Ellipse,
-            EndPaint, FF_DONTCARE, FW_NORMAL, FW_SEMIBOLD, FillRect, FrameRect, GetStockObject,
+            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACK_PEN, BeginPaint, BitBlt, CLEARTYPE_QUALITY,
+            CLIP_DEFAULT_PRECIS, COLOR_WINDOW, CreateCompatibleBitmap, CreateCompatibleDC,
+            CreateFontW, CreatePen, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_GUI_FONT,
+            DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER, DT_LEFT, DT_RIGHT, DT_RTLREADING,
+            DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, Ellipse, EndPaint,
+            FF_DONTCARE, FW_NORMAL, FW_SEMIBOLD, FillRect, FrameRect, GetStockObject,
             GetSysColorBrush, HBRUSH, HDC, HFONT, InvalidateRect, NULL_BRUSH, OUT_DEFAULT_PRECIS,
             PAINTSTRUCT, PS_SOLID, RoundRect, SRCCOPY, SelectObject, SetBkColor, SetBkMode,
             SetDIBitsToDevice, SetTextColor, TRANSPARENT, UpdateWindow, WHITE_PEN,
@@ -532,8 +532,18 @@ fn initial_position(owner: HWND, width: i32, height: i32, dpi: u32) -> (i32, i32
                     info.cbSize = size_of::<MONITORINFO>() as u32;
                     if GetMonitorInfoW(monitor, &mut info) != 0 {
                         let gap = scale(8, dpi);
-                        x = clamp_window_axis(x, width, info.rcWork.left + gap, info.rcWork.right - gap);
-                        y = clamp_window_axis(y, height, info.rcWork.top + gap, info.rcWork.bottom - gap);
+                        x = clamp_window_axis(
+                            x,
+                            width,
+                            info.rcWork.left + gap,
+                            info.rcWork.right - gap,
+                        );
+                        y = clamp_window_axis(
+                            y,
+                            height,
+                            info.rcWork.top + gap,
+                            info.rcWork.bottom - gap,
+                        );
                     }
                 }
                 return (x, y);
@@ -816,11 +826,7 @@ fn hit_test(state: &PickerState, x: i32, y: i32) -> DragTarget {
         DragTarget::SaturationValue
     } else if state.layout.hue.contains(x, y) {
         DragTarget::Hue
-    } else if state
-        .layout
-        .alpha
-        .is_some_and(|area| area.contains(x, y))
-    {
+    } else if state.layout.alpha.is_some_and(|area| area.contains(x, y)) {
         DragTarget::Alpha
     } else {
         DragTarget::None
@@ -1203,7 +1209,15 @@ unsafe fn draw_markers(hdc: HDC, state: &PickerState) {
 
     let old_brush = unsafe { SelectObject(hdc, GetStockObject(NULL_BRUSH)) };
     let old_pen = unsafe { SelectObject(hdc, GetStockObject(BLACK_PEN)) };
-    unsafe { Ellipse(hdc, sx - radius, sy - radius, sx + radius + 1, sy + radius + 1) };
+    unsafe {
+        Ellipse(
+            hdc,
+            sx - radius,
+            sy - radius,
+            sx + radius + 1,
+            sy + radius + 1,
+        )
+    };
     unsafe { SelectObject(hdc, GetStockObject(WHITE_PEN)) };
     unsafe {
         Ellipse(
@@ -1231,8 +1245,8 @@ unsafe fn draw_markers(hdc: HDC, state: &PickerState) {
     unsafe { frame_rect(hdc, &hue_marker, state.theme.text) };
 
     if let Some(alpha) = state.layout.alpha {
-        let alpha_x = alpha.x
-            + ((state.current.a as f32 / 255.0) * (alpha.width - 1) as f32).round() as i32;
+        let alpha_x =
+            alpha.x + ((state.current.a as f32 / 255.0) * (alpha.width - 1) as f32).round() as i32;
         let alpha_marker = RECT {
             left: alpha_x - thickness,
             top: alpha.y - thickness,
@@ -1306,14 +1320,7 @@ unsafe fn draw_round_box(hdc: HDC, area: Area, fill: Color, border: Color, radiu
     }
 }
 
-unsafe fn draw_text(
-    hdc: HDC,
-    text: &str,
-    area: Area,
-    color: Color,
-    font: HFONT,
-    format: u32,
-) {
+unsafe fn draw_text(hdc: HDC, text: &str, area: Area, color: Color, font: HFONT, format: u32) {
     let mut content = wide(text);
     let mut rect = area.rect();
     let old_font = if font.is_null() {
