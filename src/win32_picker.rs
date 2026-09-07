@@ -11,20 +11,18 @@ use windows_sys::Win32::{
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
-        Input::KeyboardAndMouse::{
-            EnableWindow, ReleaseCapture, SetCapture, VK_ESCAPE, VK_RETURN,
-        },
+        Input::KeyboardAndMouse::{EnableWindow, ReleaseCapture, SetCapture, VK_ESCAPE, VK_RETURN},
         WindowsAndMessaging::{
             AdjustWindowRectEx, CS_DBLCLKS, CW_USEDEFAULT, CreateWindowExW, DefWindowProcW,
             DestroyWindow, DispatchMessageW, GWLP_USERDATA, GetClientRect, GetMessageW,
             GetSystemMetrics, GetWindowLongPtrW, GetWindowRect, GetWindowTextLengthW,
             GetWindowTextW, IDC_ARROW, IsDialogMessageW, IsWindow, LoadCursorW, MSG,
-            RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, SendMessageW,
-            SetForegroundWindow, SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage,
-            WM_CLOSE, WM_COMMAND, WM_CREATE, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN,
-            WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WNDCLASSW,
-            WS_BORDER, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_EX_DLGMODALFRAME,
-            WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+            RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, SendMessageW, SetForegroundWindow,
+            SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage, WM_CLOSE, WM_COMMAND,
+            WM_CREATE, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+            WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+            WS_CLIPCHILDREN, WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU,
+            WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
