@@ -3,11 +3,19 @@ use std::sync::OnceLock;
 
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM},
-    Graphics::Gdi::{
-        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACK_PEN, BeginPaint, COLOR_WINDOW,
-        CreateSolidBrush, DEFAULT_GUI_FONT, DIB_RGB_COLORS, DeleteObject, Ellipse, EndPaint,
-        FillRect, FrameRect, GetStockObject, GetSysColorBrush, InvalidateRect, NULL_BRUSH,
-        PAINTSTRUCT, SelectObject, SetDIBitsToDevice, UpdateWindow,
+    Graphics::{
+        Dwm::{
+            DWMWA_BORDER_COLOR, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR,
+            DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUNDSMALL,
+            DwmSetWindowAttribute,
+        },
+        Gdi::{
+            BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACK_PEN, BeginPaint, BitBlt, COLOR_WINDOW,
+            CreateCompatibleBitmap, CreateCompatibleDC, CreateSolidBrush, DEFAULT_GUI_FONT,
+            DIB_RGB_COLORS, DeleteDC, DeleteObject, Ellipse, EndPaint, FillRect, FrameRect,
+            GetStockObject, GetSysColorBrush, InvalidateRect, NULL_BRUSH, PAINTSTRUCT, SRCCOPY,
+            SelectObject, SetDIBitsToDevice, UpdateWindow, WHITE_PEN,
+        },
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
@@ -20,8 +28,9 @@ use windows_sys::Win32::{
             RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, SendMessageW, SetForegroundWindow,
             SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage, WM_CLOSE, WM_COMMAND,
             WM_CREATE, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-            WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN,
-            WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+            WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+            WS_CLIPCHILDREN, WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU,
+            WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -31,25 +40,31 @@ use crate::{
     hsv::{Hsv, rgb_to_hsv},
 };
 
-const CLASS_NAME: *const u16 = windows_sys::w!("RustColorPicker.Popup.v3");
+const CLASS_NAME: *const u16 = windows_sys::w!("RustColorPicker.Popup.v4");
 static CLASS_REGISTRATION: OnceLock<Result<(), u32>> = OnceLock::new();
 
-/// The reference artwork is 356 x 427 px. These are logical pixels at 96 DPI.
-const CLIENT_WIDTH: i32 = 356;
-const CLIENT_HEIGHT: i32 = 427;
+const CLIENT_WIDTH: i32 = 384;
+const CLIENT_HEIGHT: i32 = 480;
 
-const SV: Area = Area::new(8, 4, 299, 298);
-const HUE: Area = Area::new(313, 4, 35, 298);
-const ALPHA: Area = Area::new(8, 309, 340, 29);
-const OLD_PREVIEW: Area = Area::new(18, 380, 133, 40);
-const NEW_PREVIEW: Area = Area::new(206, 380, 132, 40);
+const SV: Area = Area::new(16, 16, 314, 314);
+const HUE: Area = Area::new(342, 16, 26, 314);
+const ALPHA: Area = Area::new(16, 342, 352, 24);
+const OLD_PREVIEW: Area = Area::new(16, 424, 148, 40);
+const NEW_PREVIEW: Area = Area::new(220, 424, 148, 40);
 
 const ID_HEX: u16 = 100;
 const EN_CHANGE_CODE: u16 = 0x0300;
 const WM_SETFONT_CODE: u32 = 0x0030;
+const ES_CENTER_STYLE: u32 = 0x0001;
 const ES_AUTOHSCROLL_STYLE: u32 = 0x0080;
 const SS_RIGHT_STYLE: u32 = 0x0002;
 const SS_CENTER_STYLE: u32 = 0x0001;
+
+const BACKGROUND: Color = Color::rgb(250, 250, 251);
+const SURFACE_BORDER: Color = Color::rgb(214, 216, 220);
+const MARKER_DARK: Color = Color::rgb(32, 33, 36);
+const CHECKER_LIGHT: Color = Color::rgb(246, 246, 247);
+const CHECKER_DARK: Color = Color::rgb(216, 218, 221);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum DragTarget {
@@ -70,6 +85,8 @@ struct PickerState {
     drag: DragTarget,
     hex_edit: HWND,
     syncing_hex: bool,
+    sv_cache_hue: f32,
+    sv_pixels: Vec<u32>,
 }
 
 impl PickerState {
@@ -84,6 +101,8 @@ impl PickerState {
             drag: DragTarget::None,
             hex_edit: core::ptr::null_mut(),
             syncing_hex: false,
+            sv_cache_hue: f32::NAN,
+            sv_pixels: Vec::new(),
         }
     }
 
@@ -165,7 +184,7 @@ pub(crate) fn show(owner: HWND, initial: Color, show_alpha: bool) -> Result<Opti
         CreateWindowExW(
             ex_style,
             CLASS_NAME,
-            windows_sys::w!("Color Picker"),
+            windows_sys::w!("Color"),
             style,
             x,
             y,
@@ -180,6 +199,8 @@ pub(crate) fn show(owner: HWND, initial: Color, show_alpha: bool) -> Result<Opti
     if hwnd.is_null() {
         return Err(unsafe { GetLastError() });
     }
+
+    apply_window_appearance(hwnd);
 
     let owner_enabled = !owner.is_null() && unsafe { IsWindow(owner) } != 0;
     if owner_enabled {
@@ -206,7 +227,6 @@ pub(crate) fn show(owner: HWND, initial: Color, show_alpha: bool) -> Result<Opti
             break;
         }
 
-        // Catch Enter/Escape even when keyboard focus is inside the hex edit.
         if message.message == WM_KEYDOWN {
             if message.wParam == VK_ESCAPE as usize {
                 unsafe { finish(hwnd, &mut state, false) };
@@ -245,6 +265,47 @@ pub(crate) fn show(owner: HWND, initial: Color, show_alpha: bool) -> Result<Opti
         Ok(Some(state.current))
     } else {
         Ok(None)
+    }
+}
+
+fn apply_window_appearance(hwnd: HWND) {
+    unsafe {
+        let light_mode: i32 = 0;
+        let caption_color = Color::rgb(248, 248, 250).to_colorref();
+        let text_color = Color::rgb(35, 36, 40).to_colorref();
+        let border_color = Color::rgb(219, 221, 225).to_colorref();
+        let corner = DWMWCP_ROUNDSMALL;
+
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE as u32,
+            (&light_mode as *const i32).cast(),
+            size_of::<i32>() as u32,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_CAPTION_COLOR as u32,
+            (&caption_color as *const u32).cast(),
+            size_of::<u32>() as u32,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_TEXT_COLOR as u32,
+            (&text_color as *const u32).cast(),
+            size_of::<u32>() as u32,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_BORDER_COLOR as u32,
+            (&border_color as *const u32).cast(),
+            size_of::<u32>() as u32,
+        );
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+            (&corner as *const i32).cast(),
+            size_of::<i32>() as u32,
+        );
     }
 }
 
@@ -331,7 +392,7 @@ unsafe extern "system" fn window_proc(
             0
         }
         WM_PAINT if !state.is_null() => {
-            unsafe { paint(hwnd, &*state) };
+            unsafe { paint(hwnd, &mut *state) };
             0
         }
         WM_ERASEBKGND => 1,
@@ -417,12 +478,12 @@ unsafe fn create_children(hwnd: HWND, state: &mut PickerState) -> Result<(), u32
             hwnd,
             instance,
             windows_sys::w!("STATIC"),
-            windows_sys::w!("Hex Value:"),
+            windows_sys::w!("Hex"),
             WS_CHILD | WS_VISIBLE | SS_RIGHT_STYLE,
-            78,
-            346,
-            99,
-            22,
+            16,
+            382,
+            64,
+            24,
             0,
         )?
     };
@@ -433,11 +494,11 @@ unsafe fn create_children(hwnd: HWND, state: &mut PickerState) -> Result<(), u32
             instance,
             windows_sys::w!("EDIT"),
             core::ptr::null(),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL_STYLE,
-            180,
-            344,
-            110,
-            24,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_CENTER_STYLE | ES_AUTOHSCROLL_STYLE,
+            88,
+            378,
+            280,
+            30,
             ID_HEX,
         )?
     };
@@ -447,11 +508,11 @@ unsafe fn create_children(hwnd: HWND, state: &mut PickerState) -> Result<(), u32
             hwnd,
             instance,
             windows_sys::w!("STATIC"),
-            windows_sys::w!("»"),
+            windows_sys::w!("→"),
             WS_CHILD | WS_VISIBLE | SS_CENTER_STYLE,
-            164,
-            389,
-            28,
+            174,
+            432,
+            36,
             24,
             0,
         )?
@@ -548,7 +609,6 @@ unsafe fn update_from_point(
             state.rebuild_rgb();
         }
         DragTarget::Hue => {
-            // Reference hue strip runs red -> magenta -> blue -> cyan -> green -> yellow -> red.
             state.hsv.h = (1.0 - normalized(y - HUE.y, HUE.height)).rem_euclid(1.0);
             state.rebuild_rgb();
         }
@@ -618,7 +678,7 @@ unsafe fn sync_hex(state: &mut PickerState) {
     state.syncing_hex = false;
 }
 
-unsafe fn paint(hwnd: HWND, state: &PickerState) {
+unsafe fn paint(hwnd: HWND, state: &mut PickerState) {
     let mut paint: PAINTSTRUCT = unsafe { zeroed() };
     let hdc = unsafe { BeginPaint(hwnd, &mut paint) };
     if hdc.is_null() {
@@ -627,16 +687,54 @@ unsafe fn paint(hwnd: HWND, state: &PickerState) {
 
     let mut client = RECT::default();
     unsafe { GetClientRect(hwnd, &mut client) };
-    unsafe { fill_solid(hdc, &client, Color::WHITE) };
+    let width = client.right - client.left;
+    let height = client.bottom - client.top;
+
+    let memory_dc = unsafe { CreateCompatibleDC(hdc) };
+    if memory_dc.is_null() {
+        unsafe {
+            render_picker(hdc, &client, state);
+            EndPaint(hwnd, &paint);
+        }
+        return;
+    }
+
+    let bitmap = unsafe { CreateCompatibleBitmap(hdc, width, height) };
+    if bitmap.is_null() {
+        unsafe {
+            DeleteDC(memory_dc);
+            render_picker(hdc, &client, state);
+            EndPaint(hwnd, &paint);
+        }
+        return;
+    }
+
+    let old_bitmap = unsafe { SelectObject(memory_dc, bitmap as _) };
 
     unsafe {
+        render_picker(memory_dc, &client, state);
+        BitBlt(hdc, 0, 0, width, height, memory_dc, 0, 0, SRCCOPY);
+        SelectObject(memory_dc, old_bitmap);
+        DeleteObject(bitmap as _);
+        DeleteDC(memory_dc);
+        EndPaint(hwnd, &paint);
+    }
+}
+
+unsafe fn render_picker(
+    hdc: windows_sys::Win32::Graphics::Gdi::HDC,
+    client: &RECT,
+    state: &mut PickerState,
+) {
+    unsafe {
+        fill_solid(hdc, client, BACKGROUND);
         paint_sv(hdc, state);
         paint_hue(hdc);
 
         if state.show_alpha {
-            paint_alpha_mask(hdc);
+            paint_alpha(hdc, state.current);
         } else {
-            fill_solid(hdc, &ALPHA.rect(), Color::WHITE);
+            fill_solid(hdc, &ALPHA.rect(), Color::rgb(241, 242, 244));
             frame_light(hdc, ALPHA);
         }
 
@@ -644,31 +742,39 @@ unsafe fn paint(hwnd: HWND, state: &PickerState) {
         paint_preview(hdc, NEW_PREVIEW, state.current);
         draw_markers(hdc, state);
     }
-
-    unsafe { EndPaint(hwnd, &paint) };
 }
 
-unsafe fn paint_sv(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &PickerState) {
+unsafe fn paint_sv(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &mut PickerState) {
     let width = SV.width as usize;
     let height = SV.height as usize;
-    let mut pixels = vec![0u32; width * height];
+    let required = width * height;
+    let hue_changed =
+        !state.sv_cache_hue.is_finite() || (state.sv_cache_hue - state.hsv.h).abs() > 0.000_001;
 
-    for y in 0..height {
-        let value = 1.0 - normalized(y as i32, SV.height);
-        for x in 0..width {
-            let saturation = normalized(x as i32, SV.width);
-            let color = Hsv {
-                h: state.hsv.h,
-                s: saturation,
-                v: value,
+    if state.sv_pixels.len() != required {
+        state.sv_pixels.resize(required, 0);
+        state.sv_cache_hue = f32::NAN;
+    }
+
+    if hue_changed || !state.sv_cache_hue.is_finite() {
+        for y in 0..height {
+            let value = 1.0 - normalized(y as i32, SV.height);
+            for x in 0..width {
+                let saturation = normalized(x as i32, SV.width);
+                let color = Hsv {
+                    h: state.hsv.h,
+                    s: saturation,
+                    v: value,
+                }
+                .to_color(255);
+                state.sv_pixels[y * width + x] = dib_pixel(color);
             }
-            .to_color(255);
-            pixels[y * width + x] = dib_pixel(color);
         }
+        state.sv_cache_hue = state.hsv.h;
     }
 
     unsafe {
-        draw_bitmap(hdc, SV, &pixels);
+        draw_bitmap(hdc, SV, &state.sv_pixels);
         frame_light(hdc, SV);
     }
 }
@@ -698,17 +804,17 @@ unsafe fn paint_hue(hdc: windows_sys::Win32::Graphics::Gdi::HDC) {
     }
 }
 
-unsafe fn paint_alpha_mask(hdc: windows_sys::Win32::Graphics::Gdi::HDC) {
+unsafe fn paint_alpha(hdc: windows_sys::Win32::Graphics::Gdi::HDC, current: Color) {
     let width = ALPHA.width as usize;
     let height = ALPHA.height as usize;
     let mut pixels = vec![0u32; width * height];
 
-    for x in 0..width {
-        let alpha = normalized(x as i32, ALPHA.width);
-        let value = ((1.0 - alpha) * 255.0).round() as u8;
-        let pixel = dib_pixel(Color::rgb(value, value, value));
-        for y in 0..height {
-            pixels[y * width + x] = pixel;
+    for y in 0..height {
+        for x in 0..width {
+            let alpha = (normalized(x as i32, ALPHA.width) * 255.0).round() as u8;
+            let foreground = Color::rgba(current.r, current.g, current.b, alpha);
+            let background = checker_color(x, y);
+            pixels[y * width + x] = dib_pixel(blend_over(foreground, background));
         }
     }
 
@@ -719,10 +825,28 @@ unsafe fn paint_alpha_mask(hdc: windows_sys::Win32::Graphics::Gdi::HDC) {
 }
 
 unsafe fn paint_preview(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area, color: Color) {
-    let composited = blend_over(color, Color::WHITE);
+    let width = area.width as usize;
+    let height = area.height as usize;
+    let mut pixels = vec![0u32; width * height];
+
+    for y in 0..height {
+        for x in 0..width {
+            let background = checker_color(x, y);
+            pixels[y * width + x] = dib_pixel(blend_over(color, background));
+        }
+    }
+
     unsafe {
-        fill_solid(hdc, &area.rect(), composited);
+        draw_bitmap(hdc, area, &pixels);
         frame_light(hdc, area);
+    }
+}
+
+fn checker_color(x: usize, y: usize) -> Color {
+    if ((x / 8) + (y / 8)) % 2 == 0 {
+        CHECKER_LIGHT
+    } else {
+        CHECKER_DARK
     }
 }
 
@@ -762,9 +886,11 @@ unsafe fn draw_markers(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &Pick
     let sx = SV.x + (state.hsv.s * (SV.width - 1) as f32).round() as i32;
     let sy = SV.y + ((1.0 - state.hsv.v) * (SV.height - 1) as f32).round() as i32;
 
-    let old_pen = unsafe { SelectObject(hdc, GetStockObject(BLACK_PEN)) };
     let old_brush = unsafe { SelectObject(hdc, GetStockObject(NULL_BRUSH)) };
+    let old_pen = unsafe { SelectObject(hdc, GetStockObject(BLACK_PEN)) };
     unsafe { Ellipse(hdc, sx - 10, sy - 10, sx + 11, sy + 11) };
+    unsafe { SelectObject(hdc, GetStockObject(WHITE_PEN)) };
+    unsafe { Ellipse(hdc, sx - 9, sy - 9, sx + 10, sy + 10) };
     unsafe {
         SelectObject(hdc, old_pen);
         SelectObject(hdc, old_brush);
@@ -772,23 +898,37 @@ unsafe fn draw_markers(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &Pick
 
     let hue_y = HUE.y + ((1.0 - state.hsv.h) * (HUE.height - 1) as f32).round() as i32;
     let hue_marker = RECT {
-        left: HUE.x - 1,
+        left: HUE.x - 2,
         top: hue_y - 2,
-        right: HUE.x + HUE.width + 1,
+        right: HUE.x + HUE.width + 2,
         bottom: hue_y + 3,
     };
     unsafe { frame_dark(hdc, &hue_marker) };
+    let hue_inner = RECT {
+        left: HUE.x - 1,
+        top: hue_y - 1,
+        right: HUE.x + HUE.width + 1,
+        bottom: hue_y + 2,
+    };
+    unsafe { frame_white(hdc, &hue_inner) };
 
     if state.show_alpha {
         let alpha_x =
             ALPHA.x + ((state.current.a as f32 / 255.0) * (ALPHA.width - 1) as f32).round() as i32;
         let alpha_marker = RECT {
+            left: alpha_x - 2,
+            top: ALPHA.y - 2,
+            right: alpha_x + 3,
+            bottom: ALPHA.y + ALPHA.height + 2,
+        };
+        unsafe { frame_dark(hdc, &alpha_marker) };
+        let alpha_inner = RECT {
             left: alpha_x - 1,
             top: ALPHA.y - 1,
             right: alpha_x + 2,
             bottom: ALPHA.y + ALPHA.height + 1,
         };
-        unsafe { frame_dark(hdc, &alpha_marker) };
+        unsafe { frame_white(hdc, &alpha_inner) };
     }
 }
 
@@ -804,7 +944,7 @@ unsafe fn fill_solid(hdc: windows_sys::Win32::Graphics::Gdi::HDC, rect: &RECT, c
 }
 
 unsafe fn frame_light(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area) {
-    let brush = unsafe { CreateSolidBrush(Color::rgb(205, 205, 205).to_colorref()) };
+    let brush = unsafe { CreateSolidBrush(SURFACE_BORDER.to_colorref()) };
     if brush.is_null() {
         return;
     }
@@ -815,7 +955,18 @@ unsafe fn frame_light(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area) {
 }
 
 unsafe fn frame_dark(hdc: windows_sys::Win32::Graphics::Gdi::HDC, rect: &RECT) {
-    let brush = unsafe { CreateSolidBrush(Color::BLACK.to_colorref()) };
+    let brush = unsafe { CreateSolidBrush(MARKER_DARK.to_colorref()) };
+    if brush.is_null() {
+        return;
+    }
+    unsafe {
+        FrameRect(hdc, rect, brush);
+        DeleteObject(brush as _);
+    }
+}
+
+unsafe fn frame_white(hdc: windows_sys::Win32::Graphics::Gdi::HDC, rect: &RECT) {
+    let brush = unsafe { CreateSolidBrush(Color::WHITE.to_colorref()) };
     if brush.is_null() {
         return;
     }
