@@ -40,7 +40,11 @@ pub(crate) fn rgb_to_hsv(color: Color) -> Hsv {
         h = 0.0;
     }
 
-    let s = if max <= f32::EPSILON { 0.0 } else { delta / max };
+    let s = if max <= f32::EPSILON {
+        0.0
+    } else {
+        delta / max
+    };
 
     Hsv { h, s, v: max }
 }
