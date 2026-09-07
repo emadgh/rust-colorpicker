@@ -66,7 +66,7 @@ impl ColorPicker {
     pub fn pick(&mut self, initial: Color) -> Result<Option<Color>, PickerError> {
         #[cfg(windows)]
         {
-            return self.pick_with_owner(core::ptr::null_mut(), initial);
+            self.pick_with_owner(core::ptr::null_mut(), initial)
         }
 
         #[cfg(not(windows))]
