@@ -494,12 +494,7 @@ unsafe fn create_children(hwnd: HWND, state: &mut PickerState) -> Result<(), u32
             instance,
             windows_sys::w!("EDIT"),
             core::ptr::null(),
-            WS_CHILD
-                | WS_VISIBLE
-                | WS_TABSTOP
-                | WS_BORDER
-                | ES_CENTER_STYLE
-                | ES_AUTOHSCROLL_STYLE,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_CENTER_STYLE | ES_AUTOHSCROLL_STYLE,
             88,
             378,
             280,
@@ -753,8 +748,8 @@ unsafe fn paint_sv(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &mut Pick
     let width = SV.width as usize;
     let height = SV.height as usize;
     let required = width * height;
-    let hue_changed = !state.sv_cache_hue.is_finite()
-        || (state.sv_cache_hue - state.hsv.h).abs() > 0.000_001;
+    let hue_changed =
+        !state.sv_cache_hue.is_finite() || (state.sv_cache_hue - state.hsv.h).abs() > 0.000_001;
 
     if state.sv_pixels.len() != required {
         state.sv_pixels.resize(required, 0);
@@ -848,7 +843,7 @@ unsafe fn paint_preview(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area,
 }
 
 fn checker_color(x: usize, y: usize) -> Color {
-    if ((x / 8) + (y / 8)).is_multiple_of(2) {
+    if ((x / 8) + (y / 8)) % 2 == 0 {
         CHECKER_LIGHT
     } else {
         CHECKER_DARK
