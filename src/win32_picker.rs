@@ -15,10 +15,11 @@ use windows_sys::Win32::{
             CreateFontW, CreatePen, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_GUI_FONT,
             DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER, DT_LEFT, DT_RIGHT, DT_RTLREADING,
             DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, Ellipse, EndPaint,
-            FF_DONTCARE, FW_NORMAL, FW_SEMIBOLD, FillRect, FrameRect, GetStockObject,
-            GetSysColorBrush, HBRUSH, HDC, HFONT, InvalidateRect, NULL_BRUSH, OUT_DEFAULT_PRECIS,
-            PAINTSTRUCT, PS_SOLID, RoundRect, SRCCOPY, SelectObject, SetBkColor, SetBkMode,
-            SetDIBitsToDevice, SetTextColor, TRANSPARENT, UpdateWindow, WHITE_PEN,
+            FF_DONTCARE, FW_NORMAL, FW_SEMIBOLD, FillRect, FrameRect, GetMonitorInfoW,
+            GetStockObject, GetSysColorBrush, HBRUSH, HDC, HFONT, InvalidateRect,
+            MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow, NULL_BRUSH,
+            OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, RoundRect, SRCCOPY, SelectObject, SetBkColor,
+            SetBkMode, SetDIBitsToDevice, SetTextColor, TRANSPARENT, UpdateWindow, WHITE_PEN,
         },
     },
     System::LibraryLoader::GetModuleHandleW,
@@ -27,15 +28,14 @@ use windows_sys::Win32::{
         WindowsAndMessaging::{
             AdjustWindowRectEx, CS_DBLCLKS, CS_DROPSHADOW, CW_USEDEFAULT, CreateWindowExW,
             DefWindowProcW, DestroyWindow, DispatchMessageW, GWL_EXSTYLE, GWLP_USERDATA,
-            GetClientRect, GetMessageW, GetMonitorInfoW, GetSystemMetrics, GetWindowLongPtrW,
-            GetWindowRect, GetWindowTextLengthW, GetWindowTextW, IDC_ARROW, IsDialogMessageW,
-            IsWindow, LoadCursorW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MSG, MonitorFromWindow,
-            RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, SendMessageW, SetForegroundWindow,
-            SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage, WM_CLOSE, WM_COMMAND,
-            WM_CREATE, WM_CTLCOLOREDIT, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-            WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WNDCLASSW, WS_CAPTION, WS_CHILD,
-            WS_CLIPCHILDREN, WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
-            WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+            GetClientRect, GetMessageW, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
+            GetWindowTextLengthW, GetWindowTextW, IDC_ARROW, IsDialogMessageW, IsWindow,
+            LoadCursorW, MSG, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, SendMessageW,
+            SetForegroundWindow, SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage,
+            WM_CLOSE, WM_COMMAND, WM_CREATE, WM_CTLCOLOREDIT, WM_ERASEBKGND, WM_KEYDOWN,
+            WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT,
+            WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN, WS_EX_DLGMODALFRAME,
+            WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -1329,7 +1329,7 @@ unsafe fn draw_text(hdc: HDC, text: &str, area: Area, color: Color, font: HFONT,
         unsafe { SelectObject(hdc, font as _) }
     };
     unsafe {
-        SetBkMode(hdc, TRANSPARENT);
+        SetBkMode(hdc, TRANSPARENT as i32);
         SetTextColor(hdc, color.to_colorref());
         DrawTextW(hdc, content.as_mut_ptr(), -1, &mut rect, format);
         if !old_font.is_null() {
