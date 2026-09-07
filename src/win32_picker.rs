@@ -4,7 +4,7 @@ use std::sync::OnceLock;
 use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::Gdi::{
-        BeginPaint, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACK_PEN, COLOR_WINDOW,
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACK_PEN, BeginPaint, COLOR_WINDOW,
         COLOR_WINDOWFRAME, DEFAULT_GUI_FONT, DIB_RGB_COLORS, Ellipse, EndPaint, FillRect,
         FrameRect, GetStockObject, GetSysColorBrush, InvalidateRect, NULL_BRUSH, PAINTSTRUCT,
         SelectObject, SetDIBitsToDevice, WHITE_PEN,
@@ -20,10 +20,9 @@ use windows_sys::Win32::{
             RegisterClassW, ReleaseCapture, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, SendMessageW,
             SetCapture, SetForegroundWindow, SetWindowLongPtrW, SetWindowTextW, ShowWindow,
             TranslateMessage, UpdateWindow, WM_CLOSE, WM_COMMAND, WM_CREATE, WM_ERASEBKGND,
-            WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE,
-            WM_NCDESTROY, WM_PAINT, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
-            WS_CLIPCHILDREN, WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU,
-            WS_TABSTOP, WS_VISIBLE,
+            WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY,
+            WM_PAINT, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN,
+            WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -263,11 +262,7 @@ fn register_class() -> Result<(), u32> {
 
         if RegisterClassW(&class) == 0 {
             let error = GetLastError();
-            if error == 1410 {
-                Ok(())
-            } else {
-                Err(error)
-            }
+            if error == 1410 { Ok(()) } else { Err(error) }
         } else {
             Ok(())
         }
@@ -615,7 +610,8 @@ unsafe fn handle_hex_change(hwnd: HWND, state: &mut PickerState) {
     }
 
     let mut buffer = vec![0u16; length as usize + 1];
-    let copied = unsafe { GetWindowTextW(state.hex_edit, buffer.as_mut_ptr(), buffer.len() as i32) };
+    let copied =
+        unsafe { GetWindowTextW(state.hex_edit, buffer.as_mut_ptr(), buffer.len() as i32) };
     if copied <= 0 {
         return;
     }
@@ -668,7 +664,7 @@ unsafe fn paint(hwnd: HWND, state: &PickerState) {
         if state.show_alpha {
             paint_alpha(hdc, state);
         } else {
-            let mut alpha_rect = ALPHA.rect();
+            let alpha_rect = ALPHA.rect();
             FillRect(hdc, &alpha_rect, background);
         }
         paint_preview(hdc, OLD_PREVIEW, state.initial);
@@ -741,11 +737,7 @@ unsafe fn paint_alpha(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &Picke
     unsafe { draw_bitmap(hdc, ALPHA, &pixels) };
 }
 
-unsafe fn paint_preview(
-    hdc: windows_sys::Win32::Graphics::Gdi::HDC,
-    area: Area,
-    color: Color,
-) {
+unsafe fn paint_preview(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area, color: Color) {
     let width = area.width as usize;
     let height = area.height as usize;
     let mut pixels = vec![0u32; width * height];
@@ -760,11 +752,7 @@ unsafe fn paint_preview(
     unsafe { draw_bitmap(hdc, area, &pixels) };
 }
 
-unsafe fn draw_bitmap(
-    hdc: windows_sys::Win32::Graphics::Gdi::HDC,
-    area: Area,
-    pixels: &[u32],
-) {
+unsafe fn draw_bitmap(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area, pixels: &[u32]) {
     let mut info = BITMAPINFO::default();
     info.bmiHeader = BITMAPINFOHEADER {
         biSize: size_of::<BITMAPINFOHEADER>() as u32,
