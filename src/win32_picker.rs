@@ -5,9 +5,9 @@ use windows_sys::Win32::{
     Foundation::{GetLastError, HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::Gdi::{
         BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BLACK_PEN, BeginPaint, COLOR_WINDOW,
-        COLOR_WINDOWFRAME, DEFAULT_GUI_FONT, DIB_RGB_COLORS, Ellipse, EndPaint, FillRect,
-        FrameRect, GetStockObject, GetSysColorBrush, InvalidateRect, NULL_BRUSH, PAINTSTRUCT,
-        SelectObject, SetDIBitsToDevice, UpdateWindow, WHITE_PEN,
+        CreateSolidBrush, DEFAULT_GUI_FONT, DIB_RGB_COLORS, DeleteObject, Ellipse, EndPaint,
+        FillRect, FrameRect, GetStockObject, GetSysColorBrush, InvalidateRect, NULL_BRUSH,
+        PAINTSTRUCT, SelectObject, SetDIBitsToDevice, UpdateWindow,
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
@@ -20,7 +20,7 @@ use windows_sys::Win32::{
             RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, SendMessageW, SetForegroundWindow,
             SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage, WM_CLOSE, WM_COMMAND,
             WM_CREATE, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-            WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WNDCLASSW, WS_BORDER, WS_CAPTION, WS_CHILD,
+            WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WNDCLASSW, WS_CAPTION, WS_CHILD,
             WS_CLIPCHILDREN, WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU,
             WS_TABSTOP, WS_VISIBLE,
         },
@@ -32,25 +32,24 @@ use crate::{
     hsv::{Hsv, rgb_to_hsv},
 };
 
-const CLASS_NAME: *const u16 = windows_sys::w!("RustColorPicker.Popup.v2");
+const CLASS_NAME: *const u16 = windows_sys::w!("RustColorPicker.Popup.v3");
 static CLASS_REGISTRATION: OnceLock<Result<(), u32>> = OnceLock::new();
 
-const CLIENT_WIDTH: i32 = 348;
-const CLIENT_HEIGHT: i32 = 458;
+/// The reference artwork is 356 x 427 px. These are logical pixels at 96 DPI.
+const CLIENT_WIDTH: i32 = 356;
+const CLIENT_HEIGHT: i32 = 427;
 
-const SV: Area = Area::new(12, 12, 286, 286);
-const HUE: Area = Area::new(308, 12, 28, 286);
-const ALPHA: Area = Area::new(12, 308, 324, 18);
-const OLD_PREVIEW: Area = Area::new(12, 374, 135, 38);
-const NEW_PREVIEW: Area = Area::new(201, 374, 135, 38);
+const SV: Area = Area::new(8, 4, 299, 298);
+const HUE: Area = Area::new(313, 4, 35, 298);
+const ALPHA: Area = Area::new(8, 309, 340, 29);
+const OLD_PREVIEW: Area = Area::new(18, 380, 133, 40);
+const NEW_PREVIEW: Area = Area::new(206, 380, 132, 40);
 
 const ID_HEX: u16 = 100;
-const ID_OK: u16 = 1;
-const ID_CANCEL: u16 = 2;
 const EN_CHANGE_CODE: u16 = 0x0300;
 const WM_SETFONT_CODE: u32 = 0x0030;
 const ES_AUTOHSCROLL_STYLE: u32 = 0x0080;
-const BS_DEFPUSHBUTTON_STYLE: u32 = 0x0001;
+const SS_RIGHT_STYLE: u32 = 0x0002;
 const SS_CENTER_STYLE: u32 = 0x0001;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -76,11 +75,10 @@ struct PickerState {
 
 impl PickerState {
     fn new(initial: Color, show_alpha: bool) -> Self {
-        let hsv = Hsv::from_color(initial);
         Self {
             initial,
             current: initial,
-            hsv,
+            hsv: Hsv::from_color(initial),
             show_alpha,
             accepted: false,
             done: false,
@@ -197,6 +195,7 @@ pub(crate) fn show(owner: HWND, initial: Color, show_alpha: bool) -> Result<Opti
 
     let mut message: MSG = unsafe { zeroed() };
     let mut loop_error = None;
+
     while !state.done {
         let status = unsafe { GetMessageW(&mut message, core::ptr::null_mut(), 0, 0) };
         if status == -1 {
@@ -206,6 +205,18 @@ pub(crate) fn show(owner: HWND, initial: Color, show_alpha: bool) -> Result<Opti
         if status == 0 {
             state.done = true;
             break;
+        }
+
+        // Catch Enter/Escape even when keyboard focus is inside the hex edit.
+        if message.message == WM_KEYDOWN {
+            if message.wParam == VK_ESCAPE as usize {
+                unsafe { finish(hwnd, &mut state, false) };
+                continue;
+            }
+            if message.wParam == VK_RETURN as usize {
+                unsafe { finish(hwnd, &mut state, true) };
+                continue;
+            }
         }
 
         if unsafe { IsDialogMessageW(hwnd, &message) } == 0 {
@@ -346,31 +357,32 @@ unsafe extern "system" fn window_proc(
             0
         }
         WM_LBUTTONUP if !state.is_null() => {
-            if unsafe { (*state).drag } != DragTarget::None {
+            let (x, y) = point_from_lparam(lparam);
+            let was_dragging = unsafe { (*state).drag != DragTarget::None };
+            if was_dragging {
                 unsafe {
                     (*state).drag = DragTarget::None;
                     ReleaseCapture();
                 }
+            } else if OLD_PREVIEW.contains(x, y) {
+                unsafe {
+                    (*state).set_rgb((*state).initial);
+                    sync_hex(&mut *state);
+                    InvalidateRect(hwnd, core::ptr::null(), 0);
+                }
+            } else if NEW_PREVIEW.contains(x, y) {
+                unsafe { finish(hwnd, &mut *state, true) };
             }
             0
         }
         WM_COMMAND if !state.is_null() => {
             let id = (wparam & 0xFFFF) as u16;
             let notification = ((wparam >> 16) & 0xFFFF) as u16;
-            match id {
-                ID_OK => {
-                    unsafe { finish(hwnd, &mut *state, true) };
-                    0
-                }
-                ID_CANCEL => {
-                    unsafe { finish(hwnd, &mut *state, false) };
-                    0
-                }
-                ID_HEX if notification == EN_CHANGE_CODE => {
-                    unsafe { handle_hex_change(hwnd, &mut *state) };
-                    0
-                }
-                _ => unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
+            if id == ID_HEX && notification == EN_CHANGE_CODE {
+                unsafe { handle_hex_change(hwnd, &mut *state) };
+                0
+            } else {
+                unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
             }
         }
         WM_KEYDOWN if !state.is_null() && wparam == VK_ESCAPE as usize => {
@@ -406,13 +418,12 @@ unsafe fn create_children(hwnd: HWND, state: &mut PickerState) -> Result<(), u32
             hwnd,
             instance,
             windows_sys::w!("STATIC"),
-            windows_sys::w!("Hex"),
-            WS_CHILD | WS_VISIBLE,
-            12,
-            339,
-            62,
-            24,
-            0,
+            windows_sys::w!("Hex Value:"),
+            WS_CHILD | WS_VISIBLE | SS_RIGHT_STYLE,
+            78,
+            346,
+            99,
+            22,
             0,
         )?
     };
@@ -423,13 +434,12 @@ unsafe fn create_children(hwnd: HWND, state: &mut PickerState) -> Result<(), u32
             instance,
             windows_sys::w!("EDIT"),
             core::ptr::null(),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_BORDER | ES_AUTOHSCROLL_STYLE,
-            74,
-            336,
-            262,
-            27,
+            WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL_STYLE,
+            180,
+            344,
+            110,
+            24,
             ID_HEX,
-            0,
         )?
     };
 
@@ -438,50 +448,17 @@ unsafe fn create_children(hwnd: HWND, state: &mut PickerState) -> Result<(), u32
             hwnd,
             instance,
             windows_sys::w!("STATIC"),
-            windows_sys::w!("→"),
+            windows_sys::w!("»"),
             WS_CHILD | WS_VISIBLE | SS_CENTER_STYLE,
-            156,
-            382,
-            35,
-            22,
-            0,
-            0,
-        )?
-    };
-
-    let ok = unsafe {
-        create_child(
-            hwnd,
-            instance,
-            windows_sys::w!("BUTTON"),
-            windows_sys::w!("OK"),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON_STYLE,
-            196,
-            420,
-            68,
-            27,
-            ID_OK,
+            164,
+            389,
+            28,
+            24,
             0,
         )?
     };
 
-    let cancel = unsafe {
-        create_child(
-            hwnd,
-            instance,
-            windows_sys::w!("BUTTON"),
-            windows_sys::w!("Cancel"),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP,
-            268,
-            420,
-            68,
-            27,
-            ID_CANCEL,
-            0,
-        )?
-    };
-
-    for child in [hex_label, state.hex_edit, arrow, ok, cancel] {
+    for child in [hex_label, state.hex_edit, arrow] {
         if !font.is_null() {
             unsafe { SendMessageW(child, WM_SETFONT_CODE, font as usize, 1) };
         }
@@ -491,7 +468,6 @@ unsafe fn create_children(hwnd: HWND, state: &mut PickerState) -> Result<(), u32
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 unsafe fn create_child(
     parent: HWND,
     instance: windows_sys::Win32::Foundation::HINSTANCE,
@@ -503,16 +479,16 @@ unsafe fn create_child(
     width: i32,
     height: i32,
     id: u16,
-    ex_style: u32,
 ) -> Result<HWND, u32> {
     let menu = if id == 0 {
         core::ptr::null_mut()
     } else {
         id as usize as _
     };
+
     let hwnd = unsafe {
         CreateWindowExW(
-            ex_style,
+            0,
             class_name,
             text,
             style,
@@ -526,6 +502,7 @@ unsafe fn create_child(
             core::ptr::null(),
         )
     };
+
     if hwnd.is_null() {
         Err(unsafe { GetLastError() })
     } else {
@@ -571,10 +548,8 @@ unsafe fn update_from_point(
             state.rebuild_rgb();
         }
         DragTarget::Hue => {
-            state.hsv.h = normalized(y - HUE.y, HUE.height);
-            if state.hsv.h >= 1.0 {
-                state.hsv.h = 0.0;
-            }
+            // Reference hue strip runs red -> magenta -> blue -> cyan -> green -> yellow -> red.
+            state.hsv.h = (1.0 - normalized(y - HUE.y, HUE.height)).rem_euclid(1.0);
             state.rebuild_rgb();
         }
         DragTarget::Alpha => {
@@ -621,6 +596,7 @@ unsafe fn handle_hex_change(hwnd: HWND, state: &mut PickerState) {
     if !state.show_alpha {
         color.a = state.current.a;
     }
+
     state.set_rgb(color);
     unsafe { InvalidateRect(hwnd, core::ptr::null(), 0) };
 }
@@ -636,6 +612,7 @@ unsafe fn sync_hex(state: &mut PickerState) {
         state.current.to_hex_rgb()
     };
     let wide = wide(&text);
+
     state.syncing_hex = true;
     unsafe { SetWindowTextW(state.hex_edit, wide.as_ptr()) };
     state.syncing_hex = false;
@@ -650,20 +627,19 @@ unsafe fn paint(hwnd: HWND, state: &PickerState) {
 
     let mut client = RECT::default();
     unsafe { GetClientRect(hwnd, &mut client) };
-    let background = unsafe { GetSysColorBrush(COLOR_WINDOW) };
-    if !background.is_null() {
-        unsafe { FillRect(hdc, &client, background) };
-    }
+    unsafe { fill_solid(hdc, &client, Color::WHITE) };
 
     unsafe {
         paint_sv(hdc, state);
         paint_hue(hdc);
+
         if state.show_alpha {
-            paint_alpha(hdc, state);
-        } else if !background.is_null() {
-            let alpha_rect = ALPHA.rect();
-            FillRect(hdc, &alpha_rect, background);
+            paint_alpha_mask(hdc);
+        } else {
+            fill_solid(hdc, &ALPHA.rect(), Color::WHITE);
+            frame_light(hdc, ALPHA);
         }
+
         paint_preview(hdc, OLD_PREVIEW, state.initial);
         paint_preview(hdc, NEW_PREVIEW, state.current);
         draw_markers(hdc, state);
@@ -691,7 +667,10 @@ unsafe fn paint_sv(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &PickerSt
         }
     }
 
-    unsafe { draw_bitmap(hdc, SV, &pixels) };
+    unsafe {
+        draw_bitmap(hdc, SV, &pixels);
+        frame_light(hdc, SV);
+    }
 }
 
 unsafe fn paint_hue(hdc: windows_sys::Win32::Graphics::Gdi::HDC) {
@@ -700,7 +679,7 @@ unsafe fn paint_hue(hdc: windows_sys::Win32::Graphics::Gdi::HDC) {
     let mut pixels = vec![0u32; width * height];
 
     for y in 0..height {
-        let hue = normalized(y as i32, HUE.height);
+        let hue = (1.0 - normalized(y as i32, HUE.height)).rem_euclid(1.0);
         let color = Hsv {
             h: hue,
             s: 1.0,
@@ -713,51 +692,51 @@ unsafe fn paint_hue(hdc: windows_sys::Win32::Graphics::Gdi::HDC) {
         }
     }
 
-    unsafe { draw_bitmap(hdc, HUE, &pixels) };
+    unsafe {
+        draw_bitmap(hdc, HUE, &pixels);
+        frame_light(hdc, HUE);
+    }
 }
 
-unsafe fn paint_alpha(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &PickerState) {
+unsafe fn paint_alpha_mask(hdc: windows_sys::Win32::Graphics::Gdi::HDC) {
     let width = ALPHA.width as usize;
     let height = ALPHA.height as usize;
     let mut pixels = vec![0u32; width * height];
-    let opaque = Color::rgb(state.current.r, state.current.g, state.current.b);
 
-    for y in 0..height {
-        for x in 0..width {
-            let alpha = (normalized(x as i32, ALPHA.width) * 255.0).round() as u8;
-            let checker = checker_color(x as i32, y as i32);
-            let color = blend_over(Color::rgba(opaque.r, opaque.g, opaque.b, alpha), checker);
-            pixels[y * width + x] = dib_pixel(color);
+    for x in 0..width {
+        let alpha = normalized(x as i32, ALPHA.width);
+        let value = ((1.0 - alpha) * 255.0).round() as u8;
+        let pixel = dib_pixel(Color::rgb(value, value, value));
+        for y in 0..height {
+            pixels[y * width + x] = pixel;
         }
     }
 
-    unsafe { draw_bitmap(hdc, ALPHA, &pixels) };
+    unsafe {
+        draw_bitmap(hdc, ALPHA, &pixels);
+        frame_light(hdc, ALPHA);
+    }
 }
 
 unsafe fn paint_preview(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area, color: Color) {
-    let width = area.width as usize;
-    let height = area.height as usize;
-    let mut pixels = vec![0u32; width * height];
-
-    for y in 0..height {
-        for x in 0..width {
-            let checker = checker_color(x as i32, y as i32);
-            pixels[y * width + x] = dib_pixel(blend_over(color, checker));
-        }
+    let composited = blend_over(color, Color::WHITE);
+    unsafe {
+        fill_solid(hdc, &area.rect(), composited);
+        frame_light(hdc, area);
     }
-
-    unsafe { draw_bitmap(hdc, area, &pixels) };
 }
 
 unsafe fn draw_bitmap(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area, pixels: &[u32]) {
-    let mut info = BITMAPINFO::default();
-    info.bmiHeader = BITMAPINFOHEADER {
-        biSize: size_of::<BITMAPINFOHEADER>() as u32,
-        biWidth: area.width,
-        biHeight: -area.height,
-        biPlanes: 1,
-        biBitCount: 32,
-        biCompression: BI_RGB,
+    let info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: area.width,
+            biHeight: -area.height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB,
+            ..Default::default()
+        },
         ..Default::default()
     };
 
@@ -776,11 +755,6 @@ unsafe fn draw_bitmap(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area, p
             &info,
             DIB_RGB_COLORS,
         );
-
-        let frame = GetSysColorBrush(COLOR_WINDOWFRAME);
-        if !frame.is_null() {
-            FrameRect(hdc, &area.rect(), frame);
-        }
     }
 }
 
@@ -790,43 +764,69 @@ unsafe fn draw_markers(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &Pick
 
     let old_pen = unsafe { SelectObject(hdc, GetStockObject(BLACK_PEN)) };
     let old_brush = unsafe { SelectObject(hdc, GetStockObject(NULL_BRUSH)) };
-    unsafe { Ellipse(hdc, sx - 7, sy - 7, sx + 8, sy + 8) };
-    unsafe { SelectObject(hdc, GetStockObject(WHITE_PEN)) };
-    unsafe { Ellipse(hdc, sx - 6, sy - 6, sx + 7, sy + 7) };
+    unsafe { Ellipse(hdc, sx - 10, sy - 10, sx + 11, sy + 11) };
     unsafe {
         SelectObject(hdc, old_pen);
         SelectObject(hdc, old_brush);
     }
 
-    let hue_y = HUE.y + (state.hsv.h * (HUE.height - 1) as f32).round() as i32;
-    let frame = unsafe { GetSysColorBrush(COLOR_WINDOWFRAME) };
-    if !frame.is_null() {
-        let hue_marker = RECT {
-            left: HUE.x - 2,
-            top: hue_y - 2,
-            right: HUE.x + HUE.width + 2,
-            bottom: hue_y + 3,
-        };
-        unsafe { FrameRect(hdc, &hue_marker, frame) };
+    let hue_y = HUE.y + ((1.0 - state.hsv.h) * (HUE.height - 1) as f32).round() as i32;
+    let hue_marker = RECT {
+        left: HUE.x - 1,
+        top: hue_y - 2,
+        right: HUE.x + HUE.width + 1,
+        bottom: hue_y + 3,
+    };
+    unsafe { frame_dark(hdc, &hue_marker) };
 
-        if state.show_alpha {
-            let alpha_x = ALPHA.x
-                + ((state.current.a as f32 / 255.0) * (ALPHA.width - 1) as f32).round() as i32;
-            let alpha_marker = RECT {
-                left: alpha_x - 2,
-                top: ALPHA.y - 2,
-                right: alpha_x + 3,
-                bottom: ALPHA.y + ALPHA.height + 2,
-            };
-            unsafe { FrameRect(hdc, &alpha_marker, frame) };
-        }
+    if state.show_alpha {
+        let alpha_x =
+            ALPHA.x + ((state.current.a as f32 / 255.0) * (ALPHA.width - 1) as f32).round() as i32;
+        let alpha_marker = RECT {
+            left: alpha_x - 1,
+            top: ALPHA.y - 1,
+            right: alpha_x + 2,
+            bottom: ALPHA.y + ALPHA.height + 1,
+        };
+        unsafe { frame_dark(hdc, &alpha_marker) };
     }
 }
 
-fn checker_color(x: i32, y: i32) -> Color {
-    let light = ((x / 8) + (y / 8)) & 1 == 0;
-    let value = if light { 238 } else { 204 };
-    Color::rgb(value, value, value)
+unsafe fn fill_solid(
+    hdc: windows_sys::Win32::Graphics::Gdi::HDC,
+    rect: &RECT,
+    color: Color,
+) {
+    let brush = unsafe { CreateSolidBrush(color.to_colorref()) };
+    if brush.is_null() {
+        return;
+    }
+    unsafe {
+        FillRect(hdc, rect, brush);
+        DeleteObject(brush as _);
+    }
+}
+
+unsafe fn frame_light(hdc: windows_sys::Win32::Graphics::Gdi::HDC, area: Area) {
+    let brush = unsafe { CreateSolidBrush(Color::rgb(205, 205, 205).to_colorref()) };
+    if brush.is_null() {
+        return;
+    }
+    unsafe {
+        FrameRect(hdc, &area.rect(), brush);
+        DeleteObject(brush as _);
+    }
+}
+
+unsafe fn frame_dark(hdc: windows_sys::Win32::Graphics::Gdi::HDC, rect: &RECT) {
+    let brush = unsafe { CreateSolidBrush(Color::BLACK.to_colorref()) };
+    if brush.is_null() {
+        return;
+    }
+    unsafe {
+        FrameRect(hdc, rect, brush);
+        DeleteObject(brush as _);
+    }
 }
 
 fn blend_over(foreground: Color, background: Color) -> Color {
