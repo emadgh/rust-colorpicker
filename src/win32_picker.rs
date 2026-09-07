@@ -20,9 +20,8 @@ use windows_sys::Win32::{
             RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_SHOW, SendMessageW, SetForegroundWindow,
             SetWindowLongPtrW, SetWindowTextW, ShowWindow, TranslateMessage, WM_CLOSE, WM_COMMAND,
             WM_CREATE, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-            WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WNDCLASSW, WS_CAPTION, WS_CHILD,
-            WS_CLIPCHILDREN, WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU,
-            WS_TABSTOP, WS_VISIBLE,
+            WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WNDCLASSW, WS_CAPTION, WS_CHILD, WS_CLIPCHILDREN,
+            WS_EX_DLGMODALFRAME, WS_EX_TOOLWINDOW, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
         },
     },
 };
@@ -792,11 +791,7 @@ unsafe fn draw_markers(hdc: windows_sys::Win32::Graphics::Gdi::HDC, state: &Pick
     }
 }
 
-unsafe fn fill_solid(
-    hdc: windows_sys::Win32::Graphics::Gdi::HDC,
-    rect: &RECT,
-    color: Color,
-) {
+unsafe fn fill_solid(hdc: windows_sys::Win32::Graphics::Gdi::HDC, rect: &RECT, color: Color) {
     let brush = unsafe { CreateSolidBrush(color.to_colorref()) };
     if brush.is_null() {
         return;
