@@ -103,7 +103,11 @@ impl fmt::Display for Color {
         if self.a == 255 {
             write!(f, "#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
         } else {
-            write!(f, "#{:02X}{:02X}{:02X}{:02X}", self.r, self.g, self.b, self.a)
+            write!(
+                f,
+                "#{:02X}{:02X}{:02X}{:02X}",
+                self.r, self.g, self.b, self.a
+            )
         }
     }
 }
@@ -145,9 +149,18 @@ mod tests {
 
     #[test]
     fn parses_supported_hex_forms() {
-        assert_eq!(Color::parse_hex("#123").unwrap(), Color::rgb(0x11, 0x22, 0x33));
-        assert_eq!(Color::parse_hex("1234").unwrap(), Color::rgba(0x11, 0x22, 0x33, 0x44));
-        assert_eq!(Color::parse_hex("#123456").unwrap(), Color::rgb(0x12, 0x34, 0x56));
+        assert_eq!(
+            Color::parse_hex("#123").unwrap(),
+            Color::rgb(0x11, 0x22, 0x33)
+        );
+        assert_eq!(
+            Color::parse_hex("1234").unwrap(),
+            Color::rgba(0x11, 0x22, 0x33, 0x44)
+        );
+        assert_eq!(
+            Color::parse_hex("#123456").unwrap(),
+            Color::rgb(0x12, 0x34, 0x56)
+        );
         assert_eq!(
             Color::parse_hex("12345678").unwrap(),
             Color::rgba(0x12, 0x34, 0x56, 0x78)
