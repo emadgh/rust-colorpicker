@@ -89,8 +89,7 @@ impl ColorPicker {
     ) -> Result<Option<Color>, PickerError> {
         use core::mem::{size_of, zeroed};
         use windows_sys::Win32::UI::Controls::Dialogs::{
-            CC_ANYCOLOR, CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW, ChooseColorW,
-            CommDlgExtendedError,
+            CC_ANYCOLOR, CC_FULLOPEN, CC_RGBINIT, CHOOSECOLORW, ChooseColorW, CommDlgExtendedError,
         };
 
         let mut native_custom = self.custom_colors.map(Color::to_colorref);
