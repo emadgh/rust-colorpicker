@@ -2,7 +2,7 @@
 
 A lightweight custom native color picker for Rust applications on Windows.
 
-This crate does **not** wrap the legacy Windows `ChooseColorW` dialog. The picker UI is implemented by the crate itself with Win32/GDI and standard native child controls, with no egui, iced, Slint, Qt, WebView, or other GUI framework dependency.
+This crate does **not** wrap the legacy Windows `ChooseColorW` dialog. The picker UI is implemented by the crate itself with Win32/GDI and native Windows input controls, with no egui, iced, Slint, Qt, WebView, or other GUI framework dependency.
 
 ## Picker UI
 
@@ -10,24 +10,28 @@ The Windows picker provides:
 
 - large 2D Saturation / Value surface
 - vertical Hue strip
-- horizontal Alpha strip
+- optional Alpha strip
 - draggable selection indicators
-- editable `#RRGGBB` / `#RRGGBBAA` hex field
+- editable `#RRGGBB` / `#RRGGBBAA` Hex field
 - old-color and new-color previews
-- Enter to accept and Escape to cancel
-- click the old preview to restore the incoming color
-- click the new preview to accept the current color
-- modal owner-window behavior
-- mouse drag interaction
-
-The client layout follows the compact 356×427 reference used by the project: a large color surface, a narrow hue strip, a horizontal alpha mask, centered hex row, and before/after previews. The visible OK/Cancel button row is intentionally omitted; confirmation is handled by Enter or the new-color preview and cancellation by Escape or closing the popup.
+- explicit Confirm and Cancel buttons
+- Enter to confirm and Escape to cancel
+- native-caption or fully borderless popup modes
+- DPI / application-scale input
+- configurable host palette
+- configurable font family and sizes
+- English/Persian labels and RTL support
+- realtime preview events with transactional rollback on cancel
+- owner-window modality, topmost inheritance, and monitor work-area clamping
+- double-buffered GDI rendering and cached gradients
 
 ## Architecture
 
 The package is split into reusable layers:
 
 - **Color core** — `Color`, hex parsing/formatting, RGBA handling, and HSV conversion internals.
-- **Picker API** — framework-independent `ColorPicker` API.
+- **Picker API** — framework-independent `ColorPicker` configuration and result API.
+- **Appearance API** — `PickerTheme`, `PickerFont`, `PickerLabels`, and `PickerChrome`.
 - **Custom Win32 picker** — private native popup implementation rendered with Win32/GDI.
 - **Native Win32 field** — `field::ColorField`, a reusable child HWND showing the current color and opening the custom picker when activated.
 
@@ -59,12 +63,98 @@ fn choose() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Alpha editing is enabled by default. To expose RGB only:
+Alpha editing is enabled by default. For an RGB-only host:
 
 ```rust
 let mut picker = rust_colorpicker::ColorPicker::new();
 picker.set_show_alpha(false);
 ```
+
+When alpha editing is disabled, the alpha row is removed entirely and the incoming alpha value is preserved.
+
+## Match the host application
+
+The picker accepts the effective DPI/scale, colors, fonts, labels, direction, and window chrome from the host application.
+
+```rust
+use rust_colorpicker::{
+    ColorPicker, PickerChrome, PickerFont, PickerLabels, PickerTheme,
+};
+
+let mut picker = ColorPicker::new();
+picker.set_show_alpha(false);
+picker.set_scale_percent(110); // alternatively: picker.set_dpi(106)
+picker.set_chrome(PickerChrome::Borderless);
+picker.set_theme(PickerTheme::dark());
+picker.set_font(PickerFont::new("Vazirmatn", 15, 16));
+picker.set_labels(PickerLabels::persian());
+picker.set_rtl(true);
+picker.set_corner_radius(10);
+```
+
+`PickerTheme` is intentionally a plain public struct. Applications with their own theme system should map their active palette into it rather than forcing one of the built-in light/dark presets.
+
+```rust
+use rust_colorpicker::{Color, PickerTheme};
+
+let theme = PickerTheme {
+    background: Color::rgb(30, 31, 33),
+    surface: Color::rgb(43, 45, 48),
+    surface_alt: Color::rgb(53, 56, 60),
+    text: Color::rgb(240, 241, 243),
+    muted: Color::rgb(176, 183, 192),
+    border: Color::rgb(70, 70, 70),
+    accent: Color::rgb(248, 211, 88),
+    accent_text: Color::rgb(24, 24, 24),
+    checker_light: Color::rgb(70, 72, 76),
+    checker_dark: Color::rgb(52, 54, 58),
+};
+```
+
+## Realtime / transactional mode
+
+`pick_live` and `pick_with_owner_live` emit changes while the user drags or edits Hex.
+
+```rust
+use rust_colorpicker::{Color, ColorPicker, PickerEvent};
+
+# fn repaint_with(_: Color) {}
+# fn persist(_: Color) {}
+# fn example(hwnd: rust_colorpicker::NativeWindowHandle) -> Result<(), rust_colorpicker::PickerError> {
+let original = Color::rgb(30, 120, 220);
+let mut picker = ColorPicker::new();
+picker.set_show_alpha(false);
+
+let selected = picker.pick_with_owner_live(hwnd, original, |event| {
+    match event {
+        PickerEvent::Preview(color) => {
+            // Apply to in-memory UI only. Do not persist yet.
+            repaint_with(color);
+        }
+        PickerEvent::Accepted(color) => {
+            repaint_with(color);
+        }
+        PickerEvent::Cancelled(original) => {
+            // Escape, Cancel, close-button, or any non-confirmed close rolls back.
+            repaint_with(original);
+        }
+    }
+})?;
+
+if let Some(color) = selected {
+    persist(color);
+}
+# Ok(())
+# }
+```
+
+Realtime mode is transactional by design:
+
+- `Preview(color)` — current tentative selection
+- `Accepted(color)` — explicit confirmation
+- `Cancelled(original)` — original input color, emitted for every non-confirmed exit
+
+This lets a host update its UI immediately without accidentally persisting an unconfirmed color.
 
 ## Picker with a Win32 owner HWND
 
@@ -81,6 +171,8 @@ fn choose_for_window(
     picker.pick_with_owner(hwnd, current)
 }
 ```
+
+If the owner is topmost, the picker inherits that behavior. The picker is also clamped to the owner's monitor work area, including monitors with negative desktop coordinates.
 
 ## Native Win32 color field
 
@@ -124,15 +216,13 @@ The field owns its HWND and destroys it on `Drop`. It is intentionally `!Send` a
 - `#RRGGBBAA`
 - Win32 `COLORREF` conversion
 
-When alpha editing is enabled, the picker shows and edits `#RRGGBBAA` and exposes a horizontal alpha control. When alpha editing is disabled, the incoming alpha is preserved while RGB is edited.
-
 ## Windows demo artifact
 
-CI builds the `examples/picker.rs` demo as a release-mode Windows executable and uploads it as the `rust-colorpicker-demo-windows` workflow artifact. This is intended for visual and interaction testing without publishing a release.
+CI builds `examples/picker.rs` as a release-mode Windows executable and uploads it as the `rust-colorpicker-demo-windows` workflow artifact. This is intended for visual and interaction testing without publishing a release.
 
 ## Platform behavior
 
-Version 0.2 is Windows-native first. The core crate still compiles on non-Windows targets, where opening a picker returns `PickerError::UnsupportedPlatform`.
+Version 0.3 is Windows-native first. The core crate still compiles on non-Windows targets, where opening a picker returns `PickerError::UnsupportedPlatform`.
 
 The public API remains framework-independent so native backends for other operating systems can be added later without coupling consumers to a GUI toolkit.
 
