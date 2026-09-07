@@ -1,19 +1,36 @@
 # rust-colorpicker
 
-A small, framework-independent Rust package for native color selection.
+A lightweight custom native color picker for Rust applications on Windows.
 
-The package is intentionally split into two layers:
+This crate does **not** wrap the legacy Windows `ChooseColorW` dialog. The picker UI is implemented by the crate itself with Win32/GDI and standard native child controls, with no egui, iced, Slint, Qt, WebView, or other GUI framework dependency.
 
-- **Core API** — `Color` plus a stateful `ColorPicker` with no GUI-framework dependency.
-- **Native Win32 field** — `field::ColorField`, a real child HWND for pure Win32 applications.
+## Picker UI
 
-On Windows, `ColorPicker` calls the operating system's `ChooseColorW` common dialog rather than drawing a custom picker. This keeps behavior, keyboard handling, DPI behavior and system styling under Windows control.
+The Windows picker provides:
 
-## Why the field is separate
+- large 2D Saturation / Value surface
+- vertical Hue strip
+- horizontal Alpha strip with checkerboard transparency preview
+- draggable selection indicators
+- editable `#RRGGBB` / `#RRGGBBAA` hex field
+- old-color and new-color previews
+- OK / Cancel behavior
+- modal owner-window behavior
+- mouse drag interaction
+- native Win32 edit/button controls for keyboard and focus behavior
 
-Putting an egui, iced, Slint, Tauri, or other framework widget in the core crate would couple every consumer to that framework. The standard approach is to keep the picker framework-independent and let framework-based applications render their own color swatch/button.
+The layout intentionally follows the compact Photoshop-style picker pattern: a large color surface, a narrow hue strip, a horizontal transparency strip, hex input, and before/after previews.
 
-For pure Win32 applications, the crate includes a native `ColorField` because it is still framework-independent at the Rust level and is useful as a reusable HWND control.
+## Architecture
+
+The package is split into reusable layers:
+
+- **Color core** — `Color`, hex parsing/formatting, RGBA handling, and HSV conversion internals.
+- **Picker API** — framework-independent `ColorPicker` API.
+- **Custom Win32 picker** — private native popup implementation rendered with Win32/GDI.
+- **Native Win32 field** — `field::ColorField`, a reusable child HWND showing the current color and opening the custom picker when activated.
+
+Framework-specific widgets are deliberately kept out of the core crate. An egui application, for example, should render its own swatch using egui and call `ColorPicker` when clicked. Pure Win32 applications can use the included `ColorField` directly.
 
 ## Install
 
@@ -22,7 +39,7 @@ For pure Win32 applications, the crate includes a native `ColorField` because it
 rust-colorpicker = { git = "https://github.com/emadgh/rust-colorpicker" }
 ```
 
-The crate currently uses `windows-sys >=0.61,<0.62` only when compiling for Windows.
+The crate currently uses `windows-sys >=0.61,<0.62` only on Windows.
 
 ## Basic picker
 
@@ -31,7 +48,7 @@ use rust_colorpicker::{Color, ColorPicker};
 
 fn choose() -> Result<(), Box<dyn std::error::Error>> {
     let mut picker = ColorPicker::new();
-    let current = Color::rgb(30, 120, 220);
+    let current = Color::rgba(30, 120, 220, 255);
 
     if let Some(selected) = picker.pick(current)? {
         println!("selected: {selected}");
@@ -41,11 +58,16 @@ fn choose() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-Keep the same `ColorPicker` instance when you want Windows' 16 custom swatches to persist between opens.
+Alpha editing is enabled by default. To expose RGB only:
+
+```rust
+let mut picker = rust_colorpicker::ColorPicker::new();
+picker.set_show_alpha(false);
+```
 
 ## Picker with a Win32 owner HWND
 
-Passing the application's real top-level HWND is recommended because Windows can then handle modality, focus restoration and taskbar behavior correctly.
+Passing the application's top-level HWND is recommended so the picker behaves modally and restores focus to the host window correctly.
 
 ```rust
 use rust_colorpicker::{Color, ColorPicker, NativeWindowHandle};
@@ -61,7 +83,7 @@ fn choose_for_window(
 
 ## Native Win32 color field
 
-`ColorField` displays the selected color and automatically opens the native picker on click, Enter, or Space.
+`ColorField` is a real child HWND. It displays the selected color and opens this crate's custom picker on click, Enter, or Space.
 
 ```rust
 use rust_colorpicker::{
@@ -87,30 +109,27 @@ let field = unsafe {
 
 After the user accepts a different color, the control sends `WM_COMMAND` to its parent. The low word is the control ID and the high word is `field::COLOR_FIELD_CHANGED`. The parent can then read `field.color()`.
 
-The field owns its child HWND and destroys it on `Drop`. It is intentionally `!Send` and `!Sync`, matching Win32 UI-thread rules.
-
-## Framework-based applications
-
-For `eframe/egui`, iced, Slint, Tauri and similar applications, render the swatch/button using that framework and call `ColorPicker::pick(...)` when it is clicked. This avoids embedding a native child HWND inside a framework surface and keeps the integration idiomatic.
+The field owns its HWND and destroys it on `Drop`. It is intentionally `!Send` and `!Sync`, matching Win32 UI-thread rules.
 
 ## Color format
 
 `Color` is 8-bit sRGB RGBA and supports:
 
-- `Color::rgb(...)` / `Color::rgba(...)`
+- `Color::rgb(...)`
+- `Color::rgba(...)`
 - `#RGB`
 - `#RGBA`
 - `#RRGGBB`
 - `#RRGGBBAA`
 - Win32 `COLORREF` conversion
 
-The classic Windows `ChooseColorW` dialog selects RGB only. If the input color has alpha, this crate preserves that alpha in the returned color; the native dialog does not edit it.
+When alpha editing is enabled, the picker shows and edits `#RRGGBBAA` and provides a visual alpha slider over a checkerboard background.
 
 ## Platform behavior
 
-Version 0.1 is Windows-native first. The core crate still compiles on non-Windows targets, where opening a picker returns `PickerError::UnsupportedPlatform` rather than silently displaying a non-native substitute.
+Version 0.2 is Windows-native first. The core crate still compiles on non-Windows targets, where opening a picker returns `PickerError::UnsupportedPlatform`.
 
-This API shape leaves room for future native backends such as macOS without breaking consumers. Linux intentionally needs a desktop/toolkit-specific decision because there is no single universal OS color-picker API equivalent to Win32 `ChooseColorW`.
+The public API remains framework-independent so native backends for other operating systems can be added later without coupling consumers to a GUI toolkit.
 
 ## License
 

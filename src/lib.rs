@@ -1,12 +1,18 @@
 //! Framework-independent native color picker building blocks.
 //!
-//! The crate intentionally separates the reusable color model and picker API
-//! from GUI-framework integration. On Windows it uses the operating system's
-//! Win32 common color dialog. Pure Win32 applications can additionally use the
-//! native [`field::ColorField`] child control.
+//! The crate provides its own custom Win32/GDI color picker on Windows. It does
+//! not wrap the legacy `ChooseColorW` common dialog and does not depend on a GUI
+//! framework such as egui, iced, Slint, Qt, or a WebView.
 
 mod color;
 mod dialog;
+
+#[cfg(any(windows, test))]
+mod hsv;
+
+#[cfg(windows)]
+#[allow(clippy::field_reassign_with_default)]
+mod win32_picker;
 
 #[cfg(windows)]
 pub mod field;
